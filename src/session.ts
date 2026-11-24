@@ -1,4 +1,4 @@
-import { serverTimestamp, ref, onValue, push, set } from 'firebase/database';
+import { Database, serverTimestamp, ref, onValue, push, set, get, update } from 'firebase/database';
 
 import { Player, newGame } from './game';
 import { processEvent, E, EventType, tickEvent, createEvent } from './events';
@@ -20,10 +20,10 @@ const blankSession = {
   game: null
 };
 
-export function newSession(id, me, db) {
-  let timeOffset = 0;
+export function newSession(id: string, me: string, db: Database, onError: (e: Error) => void) {
+  let restarting = false;
 
-  const eventsRef = ref(db, `sessions/${id}`);
+  const eventsRef = ref(db, `sessions/${id}/events`);
   const s = Object.assign({
     me,
     events: [] as E[],
@@ -32,14 +32,24 @@ export function newSession(id, me, db) {
     firebase: {
       lastEvent: null,
       timeOffset: 0,
-      pushEvent: (e: E) => {push(eventsRef, e)},
+      pushEvent: (e: E) => { push(eventsRef, e).catch(onError); },
       serverTime: serverTimestamp,
+    },
+    async restart() {
+      if (restarting) return;
+      restarting = true;
+      try {
+        // The other player can join as soon as the redirect event is delivered.
+        const nextId = await makeSession(me, db);
+        createEvent({ t: EventType.NewSession, id: nextId }, s);
+      } catch (error) { onError(error); }
     },
     seed: null,
   }, blankSession);
   
   onValue(eventsRef, function (snapshot) {
     const v = snapshot.val();
+    if (v === null) return;
     for (const k in v) {
       const e = v[k];
       e._k = k;
@@ -58,24 +68,17 @@ export function newSession(id, me, db) {
     }
     s.firebase.lastEvent = s.events.slice(-1)[0]._k;
     s.firebase.timeOffset = lastTen.length > 0 ? lastTen.map(e => e.time - e.localTime).reduce((x, y) => x + y) / lastTen.length: 0;
-  })
-
-  setTimeout(() => {
-      if (s.seed) {
-        return;
-      }
-      s.firebase.pushEvent({
-        // @ts-ignore
-        time: serverTimestamp(),
-        localTime: Date.now(),
-        user: me,
-        t: EventType.Init,
-        seed: Math.random().toString(),
-      });
-    }, 1000
-  )
+  }, onError);
 
   return s;
+}
+
+// Gravity ticks have no user; network actions carry the UID verified by RTDB.
+function applyPlayerEvent(session, event) {
+  if (session.state !== SessionState.Playing) return;
+  if (event.user === '' || session.claims[event.player] === event.user) {
+    processEvent(event, session.game);
+  }
 }
 
 export function computeSession(session, end: number) {
@@ -155,7 +158,7 @@ export function computeSession(session, end: number) {
       continue;
     }
 
-    if (session.state === SessionState.Playing) processEvent(next, session.game);
+    applyPlayerEvent(session, next);
     if (session.game && session.game.over) session.state = SessionState.Over;
   }
 
@@ -165,37 +168,32 @@ export function computeSession(session, end: number) {
       // we already processed this event
       continue;
     }
-    if (session.state === SessionState.Playing) processEvent(events[i], session.game);
+    applyPlayerEvent(session, events[i]);
   }
 
   return session;
 }
 
-export function makeSession(me, db, callback) {
-  const initialEvents: any = [{
-    time: serverTimestamp(),
-    localTime: Date.now(),
-    user: me,
-    t: EventType.Init,
-    seed: Math.random().toString(),
-  }]
-  const u = new URL(window.location.href);
-  if (u.searchParams.has('test')) {
-    initialEvents.push({
-      time: serverTimestamp(),
-      localTime: Date.now(),
-      user: me,
-      t: EventType.Claim,
-      player: Player.One,
-      both: true,
-    });
-  }
+export class RoomError extends Error {}
+
+export async function joinRoom(me: string, db: Database, id: string) {
+  const members = ref(db, `sessions/${id}/members`);
+  const seats = (await get(members)).val();
+  if (!seats?.host) throw new RoomError('Room not found. Check the game code or create a new room.');
+  if (seats.host === me || seats.guest === me) return;
+  if (seats.guest) throw new RoomError('This room already has two players. Ask for a new game code.');
+  // Rules let exactly one guest claim the empty seat, even on racing joins.
+  await set(ref(db, `sessions/${id}/members/guest`), me);
+}
+
+export async function makeSession(me: string, db: Database, test = false): Promise<string> {
   const id = shortId();
-  set(ref(db, `sessions/${id}`), initialEvents).then(() => {
-    console.log(id);
-    const u = new URL(window.location.href)
-    u.searchParams.set('session', id)
-    history.pushState(u.toString(), u.toString(), u.toString())
-    callback();
-  });
+  const fields = { time: serverTimestamp(), localTime: Date.now(), user: me };
+  const initial: Record<string, unknown> = {
+    'members/host': me,
+    'events/0': { ...fields, t: EventType.Init, seed: Math.random().toString() },
+  };
+  if (test) initial['events/1'] = { ...fields, t: EventType.Claim, player: Player.One, both: true };
+  await update(ref(db, `sessions/${id}`), initial);
+  return id;
 }
