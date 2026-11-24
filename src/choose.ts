@@ -12,6 +12,7 @@ panel.addEventListener('keydown', event => {
 });
 
 // Up and down step through the menu like an arcade cursor, wrapping at the ends.
+// With nothing focused the cursor rests on Create game, so the first press moves it.
 function menuStops(): HTMLElement[] {
   const stops = [document.querySelector<HTMLElement>('#create-button'), panel.querySelector('summary')];
   if (panel.open) stops.push(code, document.querySelector<HTMLElement>('#join-button'));
@@ -19,14 +20,19 @@ function menuStops(): HTMLElement[] {
 }
 
 document.addEventListener('keydown', event => {
-  if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
   if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
   const stops = menuStops();
   const active = document.activeElement as HTMLElement;
-  if (active !== document.body && !menu.contains(active)) return;
+  const resting = !active || active === document.body;
+  if (event.key === 'Enter' && resting) {
+    event.preventDefault();
+    if (panel.open) code.focus(); else stops[0].click();
+    return;
+  }
+  if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+  if (!resting && !menu.contains(active)) return;
   const step = event.key === 'ArrowDown' ? 1 : -1;
-  const at = stops.indexOf(active);
-  const next = at === -1 ? (step === 1 ? 0 : stops.length - 1) : (at + step + stops.length) % stops.length;
+  const at = resting ? stops.indexOf(panel.open ? panel.querySelector('summary') : stops[0]) : stops.indexOf(active);
   event.preventDefault();
-  stops[next].focus();
+  stops[(at + step + stops.length) % stops.length].focus();
 });
