@@ -80,7 +80,8 @@ export class Cabinet {
           await navigator.clipboard.writeText(value);
           text(status, confirmation);
         } catch {
-          text(status, 'Clipboard unavailable. Select and copy the room code instead.');
+          window.getSelection()?.selectAllChildren(el('room-code'));
+          text(status, 'Room code selected. Use your device’s Copy command.');
         }
       });
     };
