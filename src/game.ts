@@ -519,7 +519,9 @@ function checkConnectivity(game, omino) {
   for (let i = 0; i < m1.length; i++) {
     for (let j = 0; j < m1[i].length; j++) {
       if (m1[i][j] && n1[i][j]) {
-        game.grid[i][j] = 1 - game.grid[i][j];
+        // The lock cut this pocket off. Capture it as one region; inverting
+        // each cell also hands friendly cells (even the landing piece) away.
+        game.grid[i][j] = omino.player;
       }
     }
   }
