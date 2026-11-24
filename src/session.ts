@@ -1,8 +1,9 @@
 import { Database, serverTimestamp, ref, onValue, push, set, get, update } from 'firebase/database';
 
-import { Player, newGame } from './game';
-import { processEvent, E, EventType, tickEvent, createEvent } from './events';
+import { processEvent, Player, newGame } from './game';
+import { E, EventType, tickEvent, createEvent } from './events';
 import { shortId } from './id';
+import { confirmedEvents, previewInputs } from './input-log';
 
 export enum SessionState {
   Claiming,
@@ -10,29 +11,43 @@ export enum SessionState {
   Over,
 }
 
-const blankSession = {
-  state: SessionState.Claiming,
-  users: [] as string[],
-  claims: {
-    [Player.One]: null,
-    [Player.Two]: null,
-  },
-  game: null
-};
+function initialState() {
+  return {
+    state: SessionState.Claiming,
+    claims: { [Player.One]: null, [Player.Two]: null },
+    game: null, seed: null,
+  };
+}
 
 export function newSession(id: string, me: string, db: Database, onError: (e: Error) => void) {
   let restarting = false;
 
   const eventsRef = ref(db, `sessions/${id}/events`);
-  const s = Object.assign({
+  const pending = new Map<string, E>();
+  let snapshot: Record<string, E> = {};
+  const s = {
+    ...initialState(),
+    pending,
+    now: () => Date.now() + s.firebase.timeOffset,
+    fixedSeats: true,
     me,
     events: [] as E[],
-    easyMode: true,
-    startingLevel: 1,
     firebase: {
       lastEvent: null,
       timeOffset: 0,
-      pushEvent: (e: E) => { push(eventsRef, e).catch(onError); },
+      pushEvent: (e: E) => {
+        const ref = push(eventsRef);
+        // set() can synchronously fire onValue, so register the key first.
+        pending.set(ref.key, e);
+        set(ref, e).then(() => {
+          pending.delete(ref.key);
+          refresh(); // the authoritative value may equal the local estimate
+        }, error => {
+          pending.delete(ref.key);
+          refresh();
+          onError(error);
+        });
+      },
       serverTime: serverTimestamp,
     },
     async restart() {
@@ -44,31 +59,21 @@ export function newSession(id: string, me: string, db: Database, onError: (e: Er
         createEvent({ t: EventType.NewSession, id: nextId }, s);
       } catch (error) { onError(error); }
     },
-    seed: null,
-  }, blankSession);
-  
-  onValue(eventsRef, function (snapshot) {
-    const v = snapshot.val();
-    if (v === null) return;
-    for (const k in v) {
-      const e = v[k];
-      e._k = k;
-      if (v[e.parent]) {
-        // Flicker fix
-        e.time = Math.max(e.time, v[e.parent].time + 1);
-      }
-    }
-    s.events = Object.values(v);
-    s.events.sort((e1, e2) => e1.time - e2.time);
-    const lastTen = []
-    for (let i = s.events.length - 1; i >= 0 && lastTen.length < 10; i--) {
-      if (s.events[i].user === me && s.events[i].localTime) {
-        lastTen.push(s.events[i]);
-      }
-    }
-    s.firebase.lastEvent = s.events.slice(-1)[0]._k;
-    s.firebase.timeOffset = lastTen.length > 0 ? lastTen.map(e => e.time - e.localTime).reduce((x, y) => x + y) / lastTen.length: 0;
+  };
+  function refresh() {
+    // Earlier rooms used push keys for manual seating and difficulty events.
+    const hostSeat = snapshot['1'];
+    s.fixedSeats = !!(snapshot['2'] || (hostSeat?.t === EventType.Claim && (!hostSeat.both || hostSeat.parent === '0')));
+    s.events = confirmedEvents(snapshot, pending);
+    s.firebase.lastEvent = s.events[s.events.length - 1]?._k ?? null;
+  }
+  onValue(eventsRef, data => {
+    snapshot = data.val() ?? {};
+    refresh();
   }, onError);
+  onValue(ref(db, '.info/serverTimeOffset'), data => {
+    s.firebase.timeOffset = data.val() ?? 0;
+  });
 
   return s;
 }
@@ -82,7 +87,11 @@ function applyPlayerEvent(session, event) {
 }
 
 export function computeSession(session, end: number) {
-  Object.assign(session, blankSession);
+  Object.assign(session, initialState());
+  // Keep archived matches replayable with their original settings. New rooms
+  // have fixed seats, standard clears, and no configurable starting level.
+  let easyMode = !session.fixedSeats;
+  let startingLevel = 1;
   const events = session.events;
   let i = 0;
   const nextEvent = function() {
@@ -110,51 +119,35 @@ export function computeSession(session, end: number) {
       u.searchParams.set('session', next.id);
       (window as Window).location = u.toString();
     }
-    if (next.t === EventType.Init) {
-      session.seed = session.seed ?? next.seed;
-      if (session.claims[Player.One] && session.claims[Player.Two] && session.seed) {
-        session.game = newGame({
-          time: next.time + 1000,
-          t: EventType.Init,
-          seed: session.seed,
-          user: session.me,
-          easyMode: session.easyMode,
-          startingLevel: session.startingLevel,
-        })
+    if (next.t === EventType.ToggleEasy || next.t === EventType.SetLevel) {
+      if (!session.fixedSeats) {
+        if (next.t === EventType.ToggleEasy) easyMode = next.val;
+        else startingLevel = next.val;
+      }
+      continue;
+    }
+    if (next.t === EventType.Init || next.t === EventType.Claim) {
+      if (session.state !== SessionState.Claiming) continue;
+      if (next.t === EventType.Init) {
+        session.seed = next.seed;
+        if (session.fixedSeats) session.claims[Player.One] = next.user;
+      } else if (session.fixedSeats) {
+        if (next._k === '2' && next.user !== session.claims[Player.One]) {
+          session.claims[Player.Two] = next.user;
+        } else if (next._k === '1' && next.both) { // solo test room
+          session.claims[Player.Two] = next.user;
+        }
+      } else {
+        if (session.claims[next.player] && session.claims[next.player] !== next.user) continue;
+        if (session.claims[1 - next.player] === next.user) session.claims[1 - next.player] = null;
+        session.claims[next.player] = next.user;
+        if (next.both) session.claims[1 - next.player] = next.user;
+      }
+      if (session.seed && session.claims[Player.One] && session.claims[Player.Two]) {
+        session.game = newGame({ time: next.time + 1000, t: EventType.Init, seed: session.seed,
+          user: session.me, easyMode, startingLevel }, !session.fixedSeats);
         session.state = SessionState.Playing;
       }
-      continue;
-    }
-    if (next.t === EventType.Claim) {
-      if (session.claims[next.player] && session.claims[next.player] !== next.user) {
-        continue;
-      }
-      if (session.claims[1 - next.player] === next.user) {
-        session.claims[1 - next.player] = null;
-      }
-      session.claims[next.player] = next.user;
-      if (next.both) {
-        session.claims[1 - next.player] = next.user;
-      }
-      if (session.claims[Player.One] && session.claims[Player.Two] && session.seed) {
-        session.game = newGame({
-          time: next.time + 1000,
-          t: EventType.Init,
-          seed: session.seed,
-          user: session.me,
-          easyMode: session.easyMode,
-          startingLevel: session.startingLevel,
-        })
-        session.state = SessionState.Playing;
-      }
-      continue;
-    }
-    if (next.t === EventType.ToggleEasy) {
-      session.easyMode = next.val;
-      continue;
-    }
-    if (next.t === EventType.SetLevel) {
-      session.startingLevel = next.val;
       continue;
     }
 
@@ -162,16 +155,27 @@ export function computeSession(session, end: number) {
     if (session.game && session.game.over) session.state = SessionState.Over;
   }
 
-  // Jitter mitigation - note that this doesn't actually seem to work :(
-  for(i--; i < events.length && events[i].time < end + 1000; i++) {
-    if (events[i].time < end) {
-      // we already processed this event
-      continue;
-    }
-    applyPlayerEvent(session, events[i]);
+  // Future confirmed actions wait for their place in the timeline. A pending
+  // local input can move a piece on screen, but cannot settle it early.
+  if (session.state === SessionState.Playing && session.pending?.size) {
+    previewInputs(session.game, session.pending.values(), end);
   }
 
   return session;
+}
+
+// Input targeting and rendering have different jobs: a move immediately after
+// Space belongs to the next piece, even while the screen awaits the lock ACK.
+// Replay onto a disposable game so its provisional locks never reach the HUD.
+export function pieceForInput(session, player: Player) {
+  const end = session.now() + 1;
+  const projected = computeSession({ ...session, pending: null }, end);
+  if (projected.state !== SessionState.Playing) return null;
+  for (const input of session.pending?.values() ?? []) {
+    applyPlayerEvent(projected, { ...input, time: end });
+    if (projected.game.over) return null;
+  }
+  return projected.game.activeOminos[player].id;
 }
 
 export class RoomError extends Error {}
@@ -183,7 +187,22 @@ export async function joinRoom(me: string, db: Database, id: string) {
   if (seats.host === me || seats.guest === me) return;
   if (seats.guest) throw new RoomError('This room already has two players. Ask for a new game code.');
   // Rules let exactly one guest claim the empty seat, even on racing joins.
-  await set(ref(db, `sessions/${id}/members/guest`), me);
+  // Commit membership and the timestamp that starts the match together.
+  try {
+    await update(ref(db, `sessions/${id}`), {
+      'members/guest': me,
+      'events/2': seatEvent(me, Player.Two),
+    });
+  } catch (error) {
+    const guest = (await get(ref(db, `sessions/${id}/members/guest`))).val();
+    if (guest === me) return; // another tab with the same anonymous identity joined first
+    if (guest) throw new RoomError('This room already has two players. Ask for a new game code.');
+    throw error;
+  }
+}
+
+function seatEvent(user: string, player: Player) {
+  return { t: EventType.Claim, player, user, time: serverTimestamp(), localTime: Date.now() };
 }
 
 export async function makeSession(me: string, db: Database, test = false): Promise<string> {
@@ -192,8 +211,8 @@ export async function makeSession(me: string, db: Database, test = false): Promi
   const initial: Record<string, unknown> = {
     'members/host': me,
     'events/0': { ...fields, t: EventType.Init, seed: Math.random().toString() },
+    'events/1': { ...seatEvent(me, Player.One), parent: '0', ...(test ? { both: true } : {}) },
   };
-  if (test) initial['events/1'] = { ...fields, t: EventType.Claim, player: Player.One, both: true };
   await update(ref(db, `sessions/${id}`), initial);
   return id;
 }

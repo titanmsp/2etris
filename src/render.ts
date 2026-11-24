@@ -50,15 +50,10 @@ class ScoreMeter {
 }
 
 export class Cabinet {
-  readonly blackButton = el<HTMLInputElement>('black-button');
-  readonly whiteButton = el<HTMLInputElement>('white-button');
-  readonly easyButton = el<HTMLInputElement>('easy-button');
-  readonly levelPicker = el<HTMLInputElement>('level-picker');
   private lobby = el('pregame');
   private match = el('match');
   private result = el('result');
-  private status = el('room-status');
-  private link = el<HTMLInputElement>('link');
+  private link = el<HTMLTextAreaElement>('link');
   private hero = new ScoreMeter('hero', 'score-hero');
   private rival = new ScoreMeter('rival', 'score-villian');
   private level = el('level');
@@ -76,7 +71,7 @@ export class Cabinet {
   constructor() {
     // main mounts the cabinet only after the session ID is in the URL.
     this.link.value = window.location.href;
-    text(el('code'), new URL(this.link.value).searchParams.get('session'));
+    el<HTMLButtonElement>('copy-button').disabled = false;
     el('copy-button').addEventListener('click', async () => {
       try {
         await navigator.clipboard.writeText(this.link.value);
@@ -105,19 +100,6 @@ export class Cabinet {
     if (session.state === SessionState.Claiming) {
       this.finalField = false;
       this.show(this.lobby);
-      let message = 'The match starts when both players claim a side.';
-      [this.blackButton, this.whiteButton].forEach((button, p) => {
-        const claim = session.claims[p];
-        const mine = claim === session.me;
-        button.checked = mine;
-        button.disabled = !!claim && !mine;
-        if (mine) message = `You chose ${p === Player.One ? 'black' : 'white'}. Waiting for the other player…`;
-      });
-      text(this.status, message);
-      this.easyButton.checked = session.easyMode;
-      if (document.activeElement !== this.levelPicker && this.levelPicker.valueAsNumber !== session.startingLevel) {
-        this.levelPicker.value = String(session.startingLevel);
-      }
       return;
     }
 

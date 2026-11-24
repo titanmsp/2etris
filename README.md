@@ -1,6 +1,6 @@
 # 2etris
 
-A two-player falling-block game on one shared field. Create a room and send a friend its link or eight-character code. The game starts when both colors are claimed. Each player sees their own pieces falling downward.
+A two-player falling-block game on one shared field. Create a room and send a friend its link or eight-character code. The creator plays black. When a friend opens the link or enters the code, they join as white and the match starts automatically at level 1. Only completed lines clear; disconnected blocks stay on the board. Each player sees their own pieces falling downward.
 
 ## Run locally
 

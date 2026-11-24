@@ -1,13 +1,6 @@
 import { Player } from './game';
-import { SessionState } from './session';
+import { pieceForInput, SessionState } from './session';
 import { EventType, createEvent } from './events';
-
-interface RoomControls {
-  blackButton: HTMLInputElement;
-  whiteButton: HTMLInputElement;
-  easyButton: HTMLInputElement;
-  levelPicker: HTMLInputElement;
-}
 
 const DAS = 133;
 const ARR = 50;
@@ -15,7 +8,8 @@ const ARR = 50;
 function trigger(event, session) {
   const { me } = session;
   const player = session.claims[Player.One] === me ? Player.One : Player.Two
-  createEvent(Object.assign({ player }, event), session)
+  const omino = pieceForInput(session, player);
+  if (omino !== null) createEvent({ player, omino, ...event }, session);
 }
 
 const repeaters = { }
@@ -101,8 +95,7 @@ const controls = {
   },
 };
 
-export function registerControls(ui: RoomControls, session) {
-  const { blackButton, whiteButton, easyButton, levelPicker } = ui;
+export function registerControls(session) {
   for (const eventName of ['keydown', 'keyup']) {
     window.addEventListener(eventName, function(e: KeyboardEvent) {
       const binding = controls[eventName][e.code];
@@ -122,34 +115,6 @@ export function registerControls(ui: RoomControls, session) {
   }
   window.addEventListener('blur', () => {
     for (const code of Object.keys(repeaters)) removeRepeater({ code });
-  });
-  blackButton.addEventListener('change', function(e) {
-    createEvent({
-      t: EventType.Claim,
-      player: Player.One,
-    }, session)
-  });
-  whiteButton.addEventListener('change', function(e) {
-    createEvent({
-      t: EventType.Claim,
-      player: Player.Two,
-    }, session)
-  });
-  easyButton.addEventListener('change', function(e) {
-    createEvent({
-      t: EventType.ToggleEasy,
-      val: easyButton.checked,
-    }, session)
-  });
-  levelPicker.addEventListener('change', function(e) {
-    const level = parseInt(levelPicker.value);
-    if (!Number.isInteger(level) || level < 1 || level > 14) {
-      return;
-    }
-    createEvent({
-      t: EventType.SetLevel,
-      val: level,
-    }, session)
   });
   document.querySelectorAll('[data-new-game]').forEach(button => {
     button.addEventListener('click', () => {

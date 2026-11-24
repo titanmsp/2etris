@@ -16,7 +16,7 @@ button, summary { cursor: pointer; }
 a { color: inherit; }
 img { display: block; max-width: 100%; }
 :focus-visible { outline: 3px solid var(--cyan); outline-offset: 3px; }
-.sr-only, .digits output { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.digits output { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .eyebrow, .meter label, .rack h2, .final-level { font-size: .8rem; font-weight: bold; text-transform: uppercase; letter-spacing: .1em; }
 .scene {
   min-height: 100vh; min-height: 100svh;
@@ -42,8 +42,8 @@ img { display: block; max-width: 100%; }
 .panel { border: 2px solid var(--cobalt); box-shadow: 2px 2px var(--cyan), 6px 6px var(--void); background: var(--panel); }
 .join-form { margin-top: 12px; padding: 16px; width: min(365px, calc(100vw - 2 * var(--gutter))); }
 .join-form label { display: block; margin-bottom: 8px; }
-.entry-row, .level-choice, .result-actions { display: flex; align-items: center; gap: 12px; }
-input[type=text], input[type=number] { min-width: 0; max-width: 100%; padding: 10px; background: #fcf2d8; color: #241531; border: 0; font-size: 1rem; }
+.entry-row, .result-actions { display: flex; align-items: center; gap: 12px; }
+input[type=text] { min-width: 0; max-width: 100%; padding: 10px; background: #fcf2d8; color: #241531; border: 0; font-size: 1rem; }
 .entry-row input { flex: 1; }
 .button { padding: 10px 15px; min-height: 44px; background: var(--gold); border: 0; border-bottom: 3px solid #bd6984; color: #241531; font-weight: bold; }
 .button:hover { background: #fff0a3; }
@@ -55,25 +55,11 @@ input[type=text], input[type=number] { min-width: 0; max-width: 100%; padding: 1
 .lobby-inner { padding-block: clamp(24px, 4vh, 50px); }
 .room-panel { width: min(100%, 448px); padding: clamp(18px, 2.5vw, 32px); }
 .room-panel h1 { font-size: clamp(1.6rem, 3.5vw, 2.2rem); color: var(--gold); letter-spacing: -.07em; }
-.seats { padding: 0; border: 0; display: flex; gap: 10px; margin-block: 16px; }
-.seat { flex: 1; position: relative; cursor: pointer; }
-.seat input { position: absolute; width: 1px; height: 1px; clip-path: inset(50%); }
-.seat span { display: block; text-align: center; padding: 12px 6px; border: 2px solid var(--line); font-weight: bold; }
-.black-seat span { background: #282245; color: var(--pink); }
-.white-seat span { background: #e0ecfc; color: #282245; }
-.seat input:checked + span { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold); }
-.seat input:focus-visible + span { outline: 3px solid var(--cyan); outline-offset: 3px; }
-.seat input:disabled + span { opacity: .55; cursor: not-allowed; text-decoration: line-through; }
 .room-status, .hint { color: var(--muted); font-size: .86rem; line-height: 1.45; }
 .room-status { min-height: 2.8em; }
-.level-choice { justify-content: space-between; margin: 14px 0; }
-.level-choice input { width: 4.3em; }
-.easy { display: flex; align-items: center; width: fit-content; gap: 8px; min-height: 32px; }
-.easy input { width: 1.08rem; height: 1.08rem; margin: 0; accent-color: var(--gold); }
-.invite { margin: 20px 0 12px; padding-top: 16px; border-top: 1px solid var(--line); }
-.invite .entry-row { justify-content: space-between; margin: 6px 0 10px; flex-wrap: wrap; }
-#code { color: var(--gold); font-size: 1.5rem; font-weight: bold; letter-spacing: .055em; overflow-wrap: anywhere; }
-#link { width: 100%; padding: 6px 0; margin-bottom: 5px; background: transparent; color: var(--cyan); font-size: .82rem; text-overflow: ellipsis; }
+#pregame label { display: block; margin: 16px 0 8px; color: var(--muted); }
+#link { display: block; width: 100%; resize: none; margin-bottom: 12px; padding: 8px; border: 1px solid var(--line); background: var(--void); color: var(--cyan); font: inherit; font-size: .9rem; line-height: 1.4; overflow-wrap: anywhere; }
+#copy-status:not(:empty) { margin-top: 8px; }
 
 /* 10:30 is the visible field, without stretching the 20px square cells. */
 .match, .result { border-block: 8px solid var(--cobalt); min-height: 100vh; min-height: 100svh; background: repeating-linear-gradient(0deg,#18152e 0 3px,#16132b 3px 4px); }

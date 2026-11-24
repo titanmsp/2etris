@@ -8,16 +8,6 @@ import { Player, level as levelOf } from "../src/game";
 
 import { registerControls } from "../src/controls";
 
-// computeSession copies a module-level blankSession by reference, so the
-// `claims` object is shared by every session in the process. Clear it before
-// each replay so one test cannot leak claims into another.
-export function resetSharedClaims() {
-  const probe: any = { events: [], firebase: {} };
-  computeSession(probe, 0);
-  probe.claims[Player.One] = null;
-  probe.claims[Player.Two] = null;
-}
-
 export interface Stroke {
   at: number; // fake clock (ms)
   user: string;
@@ -54,7 +44,6 @@ export function expandScript(steps: ScriptStep[], start: number): Stroke[] {
 }
 
 export function createHarness(opts: { seed: string; startingLevel?: number; easyMode?: boolean }) {
-  resetSharedClaims();
   let now = 0;
   const listeners: Record<string, Function[]> = { keydown: [], keyup: [] };
   (globalThis as any).window = {
@@ -63,7 +52,6 @@ export function createHarness(opts: { seed: string; startingLevel?: number; easy
       (listeners[name] ??= []).push(fn);
     },
   };
-  const element = () => ({ addEventListener() {}, checked: false, value: "" } as unknown as HTMLInputElement);
   // The current controls.ts reads document (new-game buttons) and Element
   // (Space guard). Neither is needed for keyboard behaviour, so stub them.
   (globalThis as any).document = { querySelectorAll: () => [], activeElement: null };
@@ -72,9 +60,8 @@ export function createHarness(opts: { seed: string; startingLevel?: number; easy
   }
   const session: any = {
     me: "p1",
+    now: () => now,
     events: [] as any[],
-    easyMode: opts.easyMode ?? false,
-    startingLevel: opts.startingLevel ?? 1,
     firebase: {
       lastEvent: null,
       timeOffset: 0,
@@ -85,66 +72,42 @@ export function createHarness(opts: { seed: string; startingLevel?: number; easy
     },
     seed: null,
   };
-  const ui = {
-    blackButton: element(),
-    whiteButton: element(),
-    easyButton: element(),
-    levelPicker: element(),
-  };
-  registerControls(ui, session);
+  registerControls(session);
 
   // The Init event that the UI's makeSession() would normally write to Firebase.
   session.events.push({ t: EventType.Init, time: 0, user: "p1", seed: opts.seed });
+
+  // Room settings, like the seed and claims, are replayed from the room log.
+  session.events.push({ t: EventType.ToggleEasy, time: 0, user: 'p1', val: opts.easyMode ?? false });
+  session.events.push({ t: EventType.SetLevel, time: 0, user: 'p1', val: opts.startingLevel ?? 1 });
 
   function advance(t: number) {
     computeSession(session, t);
     return session;
   }
 
-  function quietly(fn: () => void) {
-    const log = console.log;
-    console.log = () => {}; // createEvent logs every timestamp
-    try {
-      fn();
-    } finally {
-      console.log = log;
-    }
-  }
-
-  // Dispatches a browser-style keydown/keyup pair as `user` at fake time `at`.
   function press(s: Stroke) {
-    now = s.at;
-    session.me = s.user;
-    advance(s.at);
-    quietly(() => {
-      const down = { code: s.code, repeat: false, preventDefault() {} };
-      for (const fn of listeners.keydown ?? []) fn(down);
-      const up = { code: s.code, repeat: false, preventDefault() {} };
-      for (const fn of listeners.keyup ?? []) fn(up);
-    });
+    keydown(s.at, s.user, s.code);
+    keyup(s.at, s.user, s.code);
   }
 
   function keydown(at: number, user: string, code: string, repeat = false) {
     now = at;
     session.me = user;
     advance(at);
-    quietly(() => {
-      const e = { code, repeat, preventDefault() {} };
-      for (const fn of listeners.keydown ?? []) fn(e);
-    });
+    const e = { code, repeat, preventDefault() {} };
+    for (const fn of listeners.keydown) fn(e);
   }
 
   function keyup(at: number, user: string, code: string) {
     now = at;
     session.me = user;
     advance(at);
-    quietly(() => {
-      const e = { code, repeat: false, preventDefault() {} };
-      for (const fn of listeners.keyup ?? []) fn(e);
-    });
+    const e = { code, repeat: false, preventDefault() {} };
+    for (const fn of listeners.keyup) fn(e);
   }
 
-  // Raw claim event, as written by the UI's claim checkbox.
+  // Seat assignment event written on room creation or join.
   function claim(at: number, user: string, player: Player) {
     session.events.push({ t: EventType.Claim, time: at, user, player, localTime: at });
   }
@@ -154,6 +117,17 @@ export function createHarness(opts: { seed: string; startingLevel?: number; easy
   }
 
   return { session, advance, press, keydown, keyup, claim, replay };
+}
+
+export function createFixedRoom(seed: string) {
+  const h = createHarness({ seed });
+  h.session.fixedSeats = true;
+  h.session.events = [
+    { _k: '0', t: EventType.Init, user: 'black', seed, time: 10 },
+    { _k: '1', t: EventType.Claim, user: 'black', player: Player.One, time: 10 },
+    { _k: '2', t: EventType.Claim, user: 'white', player: Player.Two, time: 20 },
+  ];
+  return h;
 }
 
 // Plain-data view of the engine state, for deepEqual against captured values.

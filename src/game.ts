@@ -1,6 +1,6 @@
 import * as seedrandom from "seedrandom";
 import {
-  EventType,
+  E, EventType,
   Init,
   Spawn,
   Move,
@@ -344,7 +344,7 @@ function speed(game) {
   return 1000 * (0.8 - l * 0.007) ** l;
 }
 
-export function newGame(e: Init) {
+export function newGame(e: Init, legacyHold = false) {
   const rng1 = seedrandom(e.seed);
   const rng2 = seedrandom(e.seed.split("").reverse().join(""));
   const bag1 = randomBag(rng1);
@@ -358,6 +358,7 @@ export function newGame(e: Init) {
     active: true,
     over: false,
     easyMode: e.easyMode,
+    legacyHold,
     startingLevel: e.startingLevel,
     rng: {
       [Player.One]: rng1,
@@ -441,6 +442,10 @@ function checkCollision(game, omino, { dx, dy }) {
     }
   }
   return false;
+}
+
+export function canFall(game, piece: Omino) {
+  return !checkCollision(game, piece, { dx: 0, dy: 1 });
 }
 
 function checkLine(game, player, y) {
@@ -640,7 +645,7 @@ const fallHandler = function (e: Fall | HardDrop, game) {
     // console.warn('Event targeted wrong omino');
     return game;
   }
-  if (!checkCollision(game, o, { dx: 0, dy: 1 })) {
+  if (canFall(game, o)) {
     o.y += 1;
     o.lockMax = e.time + LOCK_MAX;
     o.nextFall =
@@ -667,19 +672,14 @@ const holdHandler = function (e: Hold, game) {
   if (o.held) {
     return game;
   }
-  if (game.hold[e.player] === null) {
-    game.hold[e.player] = o.shape;
-    game.activeOminos[e.player] = newOmino(game, e.player, e.time);
-    return game;
-  }
-  const oo = newOmino(game, e.player, e.time, game.hold[e.player]);
-  oo.held = true;
+  const incoming = newOmino(game, e.player, e.time, game.hold[e.player]);
+  incoming.held = !game.legacyHold || game.hold[e.player] !== null;
   game.hold[e.player] = o.shape;
-  game.activeOminos[e.player] = oo;
+  game.activeOminos[e.player] = incoming;
   return game;
 };
 
-export const eventHandlers = {
+const eventHandlers = {
   [EventType.Spawn]: function (e: Spawn, game) {
     game.activeOminos[e.player] = newOmino(game, e.player, e.time);
     return game;
@@ -727,3 +727,11 @@ export const eventHandlers = {
   [EventType.Unboost]: unboostHandler,
   [EventType.Hold]: holdHandler,
 };
+
+export function processEvent(e: E, game) {
+  if (!eventHandlers[e.t]) {
+    console.warn(`Unsupported event: ${e.t}`);
+    return game;
+  }
+  return eventHandlers[e.t](e, game);
+}

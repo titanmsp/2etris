@@ -24,19 +24,24 @@ test('room access, authenticated authorship and immutable history', async () => 
   const room = '/' + randomBytes(4).toString('hex');
   const ev = who => ({ user: who.localId, time: { '.sv': 'timestamp' }, localTime: Date.now() });
   const init = { ...ev(host), t: 8, seed: 'smoke' };
-  assert.equal(await status(room, host, 'PATCH', { 'members/host': host.localId, 'events/0': init }), 200);
+  assert.equal(await status(room, host, 'PATCH', {
+    'members/host': host.localId, 'events/0': init, 'events/1': { ...ev(host), t: 9, player: 0 },
+  }), 200);
   assert.equal(await status('', host), 401); // no room listing
   assert.equal(await status(room + '/events', null), 401);
   assert.equal(await status(room + '/events', visitor), 401);
-  assert.equal(await status(room + '/members/guest', visitor, 'PUT', visitor.localId), 200);
-  assert.equal(await status(room + '/events', visitor), 200);
-  assert.equal(await status(room + '/members/guest', third, 'PUT', third.localId), 401);
-  assert.equal(await status(room + '/events', third), 401);
-  const claim = { ...ev(visitor), t: 9, player: 1 };
-  assert.equal(await status(room + '/events/claim', visitor, 'PUT', claim), 200);
+  const join = who => status(room, who, 'PATCH', {
+    'members/guest': who.localId, 'events/2': { ...ev(who), t: 9, player: 1 },
+  });
+  const joins = await Promise.all([join(visitor), join(third)]);
+  assert.deepEqual([...joins].sort(), [200, 401]);
+  const [winner, outsider] = joins[0] === 200 ? [visitor, third] : [third, visitor];
+  assert.equal(await status(room + '/events', winner), 200);
+  assert.equal(await status(room + '/events', outsider), 401);
+  const claim = { ...ev(winner), t: 9, player: 1 };
   assert.equal(await status(room + '/events/other', host, 'PUT', claim), 401);
-  assert.equal(await status(room + '/events/claim', visitor, 'PUT', claim), 401);
-  assert.equal(await status(room + '/events/claim', visitor, 'DELETE'), 401);
-  assert.equal(await status(room + '/events/extra', third, 'PUT', { ...ev(third), t: 11, val: 2 }), 401);
+  assert.equal(await status(room + '/events/2', winner, 'PUT', claim), 401);
+  assert.equal(await status(room + '/events/2', winner, 'DELETE'), 401);
+  assert.equal(await status(room + '/events/extra', outsider, 'PUT', { ...ev(outsider), t: 11, val: 2 }), 401);
   assert.equal(await status(room + '/events/level', host, 'PUT', { ...ev(host), t: 11, val: 99 }), 401);
 });

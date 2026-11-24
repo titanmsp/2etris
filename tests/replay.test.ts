@@ -253,7 +253,30 @@ function start(seed: string, startingLevel: number) {
 }
 
 describe("two-player engine replay", () => {
-  test("game does not start until both players have claimed a side", () => {
+  test("a fixed-seat room waits for its guest, then starts black vs white at level 1", () => {
+    const h = createHarness({ seed: MAIN_SEED });
+    h.session.fixedSeats = true;
+    h.session.events = [
+      { _k: '0', t: EventType.Init, user: 'creator', time: 10, seed: MAIN_SEED },
+      { _k: '1', t: EventType.Claim, user: 'creator', player: Player.One, time: 10 },
+      // Old clients' manual controls cannot change a fixed-seat room.
+      { _k: 'old-choice', t: EventType.Claim, user: 'creator', player: Player.Two, time: 20 },
+      { t: EventType.ToggleEasy, val: true, time: 21 },
+      { t: EventType.SetLevel, val: 5, time: 22 },
+      { _k: '2', t: EventType.Claim, user: 'guest', player: Player.Two, time: 2000 },
+    ];
+    assert.equal(h.advance(1999).state, SessionState.Claiming);
+    assert.deepEqual(h.session.claims, { 0: 'creator', 1: null });
+    for (const me of ['creator', 'guest']) {
+      h.session.me = me;
+      assert.equal(h.advance(2001).state, SessionState.Playing);
+      assert.deepEqual(h.session.claims, { 0: 'creator', 1: 'guest' });
+      assert.equal(h.session.game.easyMode, false);
+      assert.equal(level(h.session.game), 1);
+    }
+  });
+
+  test("legacy room replays its original manual seat choices", () => {
     const h = createHarness({ seed: MAIN_SEED });
     h.claim(CLAIM_P1, "alice", Player.One);
     h.advance(2000);

@@ -1,5 +1,5 @@
 import { db, playerId } from './firebase';
-import { RoomError, joinRoom, newSession, makeSession, computeSession } from './session';
+import { RoomError, SessionState, joinRoom, newSession, makeSession, computeSession } from './session';
 import { Cabinet } from './render';
 import { registerControls } from './controls';
 import { prettyEvents } from './events';
@@ -35,14 +35,18 @@ async function start() {
 
   const session = newSession(id, me, db, showError);
   const cabinet = new Cabinet();
-  registerControls(cabinet, session);
+  registerControls(session);
   // @ts-ignore Optional local debugging interface.
   if (self.DEBUG_SESSION) Object.assign(self, { DEBUG_SESSION: session, prettyEvents });
   const loop = () => {
     if (failed) return;
     // @ts-ignore Optional replay clock.
-    const t = self.DEBUG_TIME || Date.now() + session.firebase.timeOffset;
+    const t = self.DEBUG_TIME || session.now();
     computeSession(session, t);
+    if (session.seed && !session.fixedSeats && session.state === SessionState.Claiming) {
+      showError(new RoomError('This unfinished room used manual seat selection. Create a new game and share its link.'));
+      return;
+    }
     cabinet.draw(session);
     setTimeout(loop, 10);
   };
