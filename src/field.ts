@@ -73,8 +73,11 @@ export class FieldRenderer {
   draw(game, hero: Player) {
     const flipped = hero === Player.Two;
     const changed = this.updateBase(game.grid, flipped);
-    const players = [Player.One, Player.Two];
-    const signature = [hero, ...players.map(p => {
+    // A finished field shows only settled blocks: the engine has already
+    // spawned a replacement for the piece that topped out, and landing
+    // guides mean nothing once play has stopped.
+    const players = game.over ? [] : [Player.One, Player.Two];
+    const signature = [hero, game.over, ...players.map(p => {
       const o = game.activeOminos[p];
       return o ? [o.shape, o.rotation, o.x, o.y].join(':') : '-';
     })].join('/');

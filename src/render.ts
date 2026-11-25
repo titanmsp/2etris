@@ -64,6 +64,9 @@ export class Cabinet {
   private finalRivalColor = el('final-rival-color');
   private finalLevel = el('final-level');
   private showResult = el('show-result');
+  private inviteTitle = el('invite-title');
+  private inviteRow = el('invite-row');
+  private newGameButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-new-game]'));
   private finalField = false;
   private screen: HTMLElement;
 
@@ -102,9 +105,20 @@ export class Cabinet {
   }
 
   draw(session) {
+    for (const button of this.newGameButtons) {
+      if (button.disabled !== session.restarting) button.disabled = session.restarting;
+    }
     if (session.state === SessionState.Claiming) {
       this.finalField = false;
       this.show(this.lobby);
+      // Only a host whose room is still open has someone to invite. A guest
+      // (including one following a rematch) sees the match start shortly.
+      // Until replay reaches the room's Init event the host is unknown, so
+      // keep the invite hidden rather than guess.
+      const host = session.loaded ? session.claims[Player.One] : null;
+      const waiting = host === session.me;
+      text(this.inviteTitle, !host ? 'Connecting…' : waiting ? 'Waiting for player two' : 'Joining match…');
+      if (this.inviteRow.hidden === waiting) this.inviteRow.hidden = !waiting;
       return;
     }
 
