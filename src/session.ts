@@ -16,18 +16,20 @@ function initialState() {
     state: SessionState.Claiming,
     claims: { [Player.One]: null, [Player.Two]: null },
     game: null, seed: null,
+    // The room both players move to after either one starts a new game.
+    nextSession: null as string | null,
   };
 }
 
 export function newSession(id: string, me: string, db: Database, onError: (e: Error) => void) {
-  let restarting = false;
-
   const eventsRef = ref(db, `sessions/${id}/events`);
   const pending = new Map<string, E>();
   let snapshot: Record<string, E> = {};
   const s = {
     ...initialState(),
     pending,
+    loaded: false, // true once the first event snapshot has arrived
+    restarting: false,
     now: () => Date.now() + s.firebase.timeOffset,
     fixedSeats: true,
     me,
@@ -51,13 +53,16 @@ export function newSession(id: string, me: string, db: Database, onError: (e: Er
       serverTime: serverTimestamp,
     },
     async restart() {
-      if (restarting) return;
-      restarting = true;
+      if (s.restarting) return;
+      s.restarting = true;
       try {
         // The other player can join as soon as the redirect event is delivered.
         const nextId = await makeSession(me, db);
         createEvent({ t: EventType.NewSession, id: nextId }, s);
-      } catch (error) { onError(error); }
+      } catch (error) {
+        s.restarting = false;
+        onError(error);
+      }
     },
   };
   function refresh() {
@@ -69,6 +74,7 @@ export function newSession(id: string, me: string, db: Database, onError: (e: Er
   }
   onValue(eventsRef, data => {
     snapshot = data.val() ?? {};
+    s.loaded = true;
     refresh();
   }, onError);
   onValue(ref(db, '.info/serverTimeOffset'), data => {
@@ -115,9 +121,10 @@ export function computeSession(session, end: number) {
   };
   for (let next = nextEvent(); next && next.time < end; next = nextEvent()) {
     if (next.t === EventType.NewSession) {
-      const u = new URL(window.location.href);
-      u.searchParams.set('session', next.id);
-      (window as Window).location = u.toString();
+      // Replay runs every frame, so the caller navigates (once). If both
+      // players start a new game at the same time, both follow the first.
+      session.nextSession ??= next.id;
+      continue;
     }
     if (next.t === EventType.ToggleEasy || next.t === EventType.SetLevel) {
       if (!session.fixedSeats) {

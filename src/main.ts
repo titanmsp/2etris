@@ -38,11 +38,20 @@ async function start() {
   registerControls(session);
   // @ts-ignore Optional local debugging interface.
   if (self.DEBUG_SESSION) Object.assign(self, { DEBUG_SESSION: session, prettyEvents });
+  let navigating = false;
   const loop = () => {
     if (failed) return;
     // @ts-ignore Optional replay clock.
     const t = self.DEBUG_TIME || session.now();
     computeSession(session, t);
+    // Navigate once: assigning again would restart the load. Keep drawing
+    // until the page actually leaves, in case the player cancels it.
+    if (session.nextSession && !navigating) {
+      navigating = true;
+      const next = new URL(location.href);
+      next.searchParams.set('session', session.nextSession);
+      location.assign(next);
+    }
     if (session.seed && !session.fixedSeats && session.state === SessionState.Claiming) {
       showError(new RoomError('This unfinished room used manual seat selection. Create a new game and share its link.'));
       return;

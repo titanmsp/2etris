@@ -57,6 +57,7 @@ input[type=text] { min-width: 0; max-width: 100%; padding: 10px; background: #fc
 .button:hover { background: #fff0a3; }
 .text-link { display: inline-block; width: fit-content; border: 0; padding: 8px 0; color: var(--ivory); background: none; font-size: .9rem; text-decoration: underline; text-underline-offset: 4px; }
 .text-link:hover, summary:hover { color: var(--gold); }
+[data-new-game]:disabled { opacity: .6; cursor: progress; }
 
 /* A room is the same cabinet with its setup panel open. */
 .room-logo { width: clamp(140px, 19vw, 230px); margin-bottom: 18px; }
